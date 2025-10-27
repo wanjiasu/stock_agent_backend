@@ -189,6 +189,24 @@ def select_shallow_thinking_agent(provider) -> str:
         "deepseek v3": [
             ("DeepSeek Chat - 通用对话模型，适合股票投资分析", "deepseek-chat"),
         ],
+        "云雾 (yunwu)": [
+            ("GPT-5 2025-08-07 - 🚀 最新GPT-5模型", "gpt-5-2025-08-07"),
+            ("Claude Sonnet 4.5 20250929 - 🚀 最新Claude模型", "claude-sonnet-4-5-20250929"),
+            ("DeepSeek V3.1 250821 - 🇨🇳 最新DeepSeek模型", "deepseek-v3-1-250821"),
+            ("自定义模型 - 手动输入模型名称", "custom"),
+        ],
+        "云雾 (yunwu)": [
+            ("GPT-5 2025-08-07 - 🚀 最新GPT-5模型", "gpt-5-2025-08-07"),
+            ("Claude Sonnet 4.5 20250929 - 🚀 最新Claude模型", "claude-sonnet-4-5-20250929"),
+            ("DeepSeek V3.1 250821 - 🇨🇳 最新DeepSeek模型", "deepseek-v3-1-250821"),
+            ("自定义模型 - 手动输入模型名称", "custom"),
+        ],
+        "云雾 (yunwu)": [
+            ("GPT-5 2025-08-07 - 🚀 最新GPT-5模型", "gpt-5-2025-08-07"),
+            ("Claude Sonnet 4.5 20250929 - 🚀 最新Claude模型", "claude-sonnet-4-5-20250929"),
+            ("DeepSeek V3.1 250821 - 🇨🇳 最新DeepSeek模型", "deepseek-v3-1-250821"),
+            ("自定义模型 - 手动输入模型名称", "custom"),
+        ],
         "🔧 自定义openai端点": [
             ("GPT-4o-mini - Fast and efficient for quick tasks", "gpt-4o-mini"),
             ("GPT-4o - Standard model with solid capabilities", "gpt-4o"),
@@ -287,6 +305,12 @@ def select_deep_thinking_agent(provider) -> str:
         "deepseek v3": [
             ("DeepSeek Chat - 通用对话模型，适合股票投资分析", "deepseek-chat"),
         ],
+        "云雾 (yunwu)": [
+            ("GPT-5 2025-08-07 - 最新GPT-5模型", "gpt-5-2025-08-07"),
+            ("Claude Sonnet 4.5 20250929 - 最新Claude Sonnet 4.5", "claude-sonnet-4-5-20250929"),
+            ("DeepSeek V3.1 250821 - 最新DeepSeek V3.1", "deepseek-v3-1-250821"),
+            ("自定义模型 - 手动输入模型名称", "custom"),
+        ],
         "🔧 自定义openai端点": [
             ("GPT-4o - Standard model with solid capabilities", "gpt-4o"),
             ("GPT-4o-mini - Fast and efficient for quick tasks", "gpt-4o-mini"),
@@ -340,6 +364,7 @@ def select_llm_provider() -> tuple[str, str]:
     BASE_URLS = [
         ("阿里百炼 (DashScope)", "https://dashscope.aliyuncs.com/api/v1"),
         ("DeepSeek V3", "https://api.deepseek.com"),
+        ("云雾 (Yunwu)", "https://yunwu.ai/v1"),
         ("OpenAI", "https://api.openai.com/v1"),
         ("🔧 自定义OpenAI端点", "custom"),
         ("Anthropic", "https://api.anthropic.com/"),

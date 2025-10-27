@@ -1056,6 +1056,15 @@ def run_analysis():
         config["llm_provider"] = "dashscope"
     elif "deepseek" in selected_llm_provider_name or "DeepSeek" in selections["llm_provider"]:
         config["llm_provider"] = "deepseek"
+    elif "云雾" in selections["llm_provider"] or "yunwu" in selected_llm_provider_name:
+        config["llm_provider"] = "custom_openai"
+        # 设置云雾API的URL和密钥
+        config["custom_openai_base_url"] = "https://yunwu.ai/v1"
+        config["backend_url"] = "https://yunwu.ai/v1"
+        # 从环境变量获取云雾API密钥
+        yunwu_api_key = os.getenv('YOUR_PROVIDER_API_KEY') or os.getenv('CUSTOM_OPENAI_API_KEY')
+        if yunwu_api_key:
+            os.environ['CUSTOM_OPENAI_API_KEY'] = yunwu_api_key
     elif "openai" in selected_llm_provider_name and "自定义" not in selections["llm_provider"]:
         config["llm_provider"] = "openai"
     elif "自定义openai端点" in selected_llm_provider_name or "自定义" in selections["llm_provider"]:
