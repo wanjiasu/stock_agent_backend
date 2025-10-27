@@ -7,6 +7,7 @@ from typing import List, Optional
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field, validator
+from fastapi.middleware.cors import CORSMiddleware
 
 from cli.models import AnalystType
 from web.utils.analysis_runner import (
@@ -22,6 +23,20 @@ app = FastAPI(
     title="TradingAgents API",
     description="通过 FastAPI 暴露 TradingAgents 股票分析能力",
     version="0.1.0",
+)
+
+# CORS 设置：允许本地前端访问
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3001",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 
