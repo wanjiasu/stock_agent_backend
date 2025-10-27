@@ -464,6 +464,28 @@ python start_web.py
 # 4. 访问 http://localhost:8501
 ```
 
+### ⚡ FastAPI 服务（API 调用）
+
+```bash
+# 1. 启动 FastAPI 服务（默认监听 8000 端口）
+uvicorn api.server:app --host 0.0.0.0 --port 8000
+
+# 2. 通过 REST API 触发股票分析（示例）
+curl -X POST http://localhost:8000/analyze \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ticker": "AAPL",
+    "analysis_date": "2024-08-01",
+    "analysts": ["market", "fundamentals", "news"],
+    "research_depth": 1,
+    "llm_provider": "dashscope",
+    "llm_model": "qwen-plus",
+    "market_type": "美股"
+  }'
+```
+
+> ✅ `ticker` 字段与 CLI 输入一致；请求中的所有参数会一次性传递给原有的 `python -m cli.main analyze` 流程。
+
 ### 📊 开始分析
 
 1. **选择模型**: DeepSeek V3 / 通义千问 / Gemini
