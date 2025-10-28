@@ -18,7 +18,7 @@ from web.utils.analysis_runner import (
 )
 
 # 确保加载环境变量（兼容CLI/Web配置）
-load_dotenv(override=False)
+load_dotenv(override=True)
 
 app = FastAPI(
     title="TradingAgents API",
