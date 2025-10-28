@@ -1,4 +1,5 @@
 import asyncio
+import os
 from datetime import date
 from enum import Enum
 from functools import partial
@@ -25,18 +26,46 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# CORS 设置：允许本地前端访问
+def _parse_list_env(var_name: str, default: List[str]) -> List[str]:
+    value = os.getenv(var_name)
+    if not value:
+        return default
+    items = [x.strip() for x in value.split(",") if x.strip()]
+    return items or default
+
+# CORS 设置：默认允许本地前端；可通过环境变量覆盖
+_default_origins = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
+]
+
+allow_origins = _parse_list_env("CORS_ALLOW_ORIGINS", _default_origins)
+
+methods_env = os.getenv("CORS_ALLOW_METHODS", "*").strip()
+allow_methods = (
+    ["*"] if methods_env == "*" else [m.strip() for m in methods_env.split(",") if m.strip()]
+)
+
+headers_env = os.getenv("CORS_ALLOW_HEADERS", "*").strip()
+allow_headers = (
+    ["*"] if headers_env == "*" else [h.strip() for h in headers_env.split(",") if h.strip()]
+)
+
+allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() in (
+    "true",
+    "1",
+    "yes",
+    "on",
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://localhost:3001",
-        "http://127.0.0.1:3001",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=allow_origins,
+    allow_credentials=allow_credentials,
+    allow_methods=allow_methods,
+    allow_headers=allow_headers,
 )
 
 
