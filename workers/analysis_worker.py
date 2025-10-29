@@ -63,6 +63,8 @@ def send_report_email(to_email: str, report_url: str) -> None:
     use_tls = _env_bool(os.getenv("MAIL_TLS"), default=False)
     use_ssl = _env_bool(os.getenv("MAIL_SSL"), default=True)
 
+    logger.info(f"SMTP 配置: server={mail_server}, port={mail_port}, ssl={use_ssl}, tls={use_tls}, from={mail_from}, user={mail_username}")
+
     if not mail_server or not mail_username or not mail_password:
         raise RuntimeError("SMTP config incomplete: MAIL_SERVER/MAIL_USERNAME/MAIL_PASSWORD required")
 
@@ -76,19 +78,37 @@ def send_report_email(to_email: str, report_url: str) -> None:
         f"如无法点击，请复制链接到浏览器打开。\n"
     )
 
+    # 首选 SSL 直连（通常 465）；失败时自动回退到 STARTTLS（通常 587）
+    errors: List[str] = []
+
     if use_ssl:
-        context = create_default_context()
-        with smtplib.SMTP_SSL(mail_server, mail_port, context=context) as server:
-            server.login(mail_username, mail_password)
-            server.send_message(msg)
-    else:
-        with smtplib.SMTP(mail_server, mail_port) as server:
+        try:
+            logger.info(f"SMTP: 尝试 SSL 连接 {mail_server}:{mail_port}")
+            with smtplib.SMTP_SSL(mail_server, mail_port, context=create_default_context(), timeout=30) as server:
+                server.login(mail_username, mail_password)
+                server.send_message(msg)
+            logger.info("SMTP: SSL 发送成功")
+            return
+        except Exception as e:
+            errors.append(f"SSL {mail_server}:{mail_port} 失败: {e}")
+            logger.warning(f"SMTP: SSL 连接失败（{e}），将尝试 STARTTLS 回退")
+
+    # STARTTLS 回退（如果环境变量已指定TLS或上一步失败）
+    try:
+        fallback_port = 587 if mail_port == 465 else mail_port
+        logger.info(f"SMTP: 尝试 STARTTLS 连接 {mail_server}:{fallback_port}")
+        with smtplib.SMTP(mail_server, fallback_port, timeout=30) as server:
             server.ehlo()
-            if use_tls:
+            if use_tls or True:
                 server.starttls(context=create_default_context())
                 server.ehlo()
             server.login(mail_username, mail_password)
             server.send_message(msg)
+        logger.info("SMTP: STARTTLS 发送成功")
+        return
+    except Exception as e:
+        errors.append(f"TLS {mail_server}:{fallback_port} 失败: {e}")
+        raise RuntimeError("SMTP 发送失败: " + " | ".join(errors))
 
 
 # ---- Mongo helpers ----
