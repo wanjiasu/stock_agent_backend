@@ -339,4 +339,46 @@ async def analyze_and_email(request: AnalyzeAndEmailRequest):
     return EnqueueResponse(task_id=task_id, status="queued", message="任务已进入队列，请稍后")
 
 # 旧的占位端点已移除，实际实现见上方 /analyze-and-email。
-    pass
+
+@app.get("/reports/by-task/{task_id}")
+def get_report_by_task(task_id: str):
+    """
+    根据 task_id 从 MongoDB 的 analysis_reports 集合读取报告数据。
+    返回包含元数据与 reports（Markdown 文档集合）。
+    """
+    mongodb_client = get_mongodb_client()
+    if mongodb_client is None:
+        raise HTTPException(status_code=503, detail="MongoDB不可用或未启用")
+
+    db_name = get_database_manager().mongodb_config.get("database", "tradingagents")
+    db = mongodb_client[db_name]
+    reports_coll = db["analysis_reports"]
+
+    try:
+        doc = reports_coll.find_one({"task_id": task_id})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"查询MongoDB失败: {e}")
+
+    if not doc:
+        raise HTTPException(status_code=404, detail="未找到该task_id对应的报告")
+
+    # 统一时间戳
+    def to_ts(v):
+        try:
+            return v.timestamp() if hasattr(v, "timestamp") else v
+        except Exception:
+            return None
+
+    reports = doc.get("reports") or {}
+
+    return {
+        "task_id": doc.get("task_id"),
+        "analysis_id": doc.get("analysis_id"),
+        "stock_symbol": doc.get("stock_symbol"),
+        "analysis_date": doc.get("analysis_date"),
+        "analysts": doc.get("analysts", []),
+        "research_depth": doc.get("research_depth", 1),
+        "status": doc.get("status", "completed"),
+        "timestamp": to_ts(doc.get("timestamp")),
+        "reports": reports,
+    }
