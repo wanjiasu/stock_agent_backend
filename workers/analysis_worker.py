@@ -14,6 +14,7 @@ import sys
 import time
 import smtplib
 import traceback
+import json
 from ssl import create_default_context
 from email.message import EmailMessage
 from datetime import datetime
@@ -51,10 +52,49 @@ def _env_bool(val: Optional[str], default: bool = False) -> bool:
 
 
 def send_report_email(to_email: str, report_url: str) -> None:
-    """Send the report URL to user via SMTP. Raises on failure."""
+    """Send the report URL to user via email using Resend HTTP API (preferred).
+    Falls back to SMTP if RESEND is not configured.
+    """
     if not to_email:
         raise ValueError("notify_email is empty")
 
+    # Try Resend first
+    resend_api_key = os.getenv("RESEND_API_KEY")
+    resend_from = os.getenv("RESEND_FROM")
+
+    if resend_api_key and resend_from:
+        import requests
+        subject = "TradingAgents 报告已生成"
+        html = (
+            f"<p>您好，您的股票分析报告已生成。</p>"
+            f"<p>报告地址：<a href=\"{report_url}\">{report_url}</a></p>"
+            f"<p>如无法点击，请复制链接到浏览器打开。</p>"
+        )
+        url = "https://api.resend.com/emails"
+        headers = {
+            "Authorization": f"Bearer {resend_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "from": resend_from,
+            "to": [to_email],
+            "subject": subject,
+            "html": html,
+        }
+        logger.info(f"Resend: 发送邮件 to={to_email} from={resend_from} subject={subject}")
+        try:
+            resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=30)
+            if resp.status_code >= 200 and resp.status_code < 300:
+                logger.info("Resend: 发送成功")
+                return
+            else:
+                logger.error(f"Resend: 发送失败 status={resp.status_code} body={resp.text}")
+                raise RuntimeError(f"Resend 发送失败: {resp.status_code} {resp.text}")
+        except Exception as e:
+            logger.error(f"Resend: 请求异常 {e}")
+            raise
+
+    # Fallback to SMTP when Resend not configured
     mail_server = os.getenv("MAIL_SERVER")
     mail_port = int(os.getenv("MAIL_PORT", "465"))
     mail_username = os.getenv("MAIL_USERNAME")
@@ -78,7 +118,6 @@ def send_report_email(to_email: str, report_url: str) -> None:
         f"如无法点击，请复制链接到浏览器打开。\n"
     )
 
-    # 首选 SSL 直连（通常 465）；失败时自动回退到 STARTTLS（通常 587）
     errors: List[str] = []
 
     if use_ssl:
@@ -93,15 +132,13 @@ def send_report_email(to_email: str, report_url: str) -> None:
             errors.append(f"SSL {mail_server}:{mail_port} 失败: {e}")
             logger.warning(f"SMTP: SSL 连接失败（{e}），将尝试 STARTTLS 回退")
 
-    # STARTTLS 回退（如果环境变量已指定TLS或上一步失败）
     try:
         fallback_port = 587 if mail_port == 465 else mail_port
         logger.info(f"SMTP: 尝试 STARTTLS 连接 {mail_server}:{fallback_port}")
         with smtplib.SMTP(mail_server, fallback_port, timeout=30) as server:
             server.ehlo()
-            if use_tls or True:
-                server.starttls(context=create_default_context())
-                server.ehlo()
+            server.starttls(context=create_default_context())
+            server.ehlo()
             server.login(mail_username, mail_password)
             server.send_message(msg)
         logger.info("SMTP: STARTTLS 发送成功")
