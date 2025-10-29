@@ -139,6 +139,7 @@ class MongoDBReportManager:
                 "analysts": analysis_results.get("analysts", []),
                 "research_depth": analysis_results.get("research_depth", 1),
                 "updated_at": timestamp,
+                "task_id": analysis_results.get("task_id"),
             }
 
             # 合并 reports 子字段（逐字段更新，不覆盖未提供的子字段）
