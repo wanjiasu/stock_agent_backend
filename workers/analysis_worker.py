@@ -203,7 +203,8 @@ def process_task(task_id: str) -> None:
         raise
 
     # Send email
-    report_url = f"http://192.168.0.186:3000" + f"/report/{task_id}"
+    web_base = os.getenv("WEB_BASE_URL", "http://localhost:3000").rstrip("/")
+    report_url = f"{web_base}/report/{task_id}"
     push_progress(tasks_coll, task_id, "发送邮件通知用户...")
     try:
         send_report_email(notify_email, report_url)

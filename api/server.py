@@ -73,6 +73,52 @@ app.add_middleware(
     allow_headers=allow_headers,
 )
 
+# ===== Worker 联动（可选，通过环境变量启用） =====
+# 设置 RUN_WORKER_WITH_SERVER=true 时，uvicorn 启动会同时拉起分析 worker。
+# 注意：在使用 --reload 或多进程模式时可能造成重复启动，生产环境建议独立进程或 Docker。
+WORKER_POPEN = None
+
+@app.on_event("startup")
+async def _start_worker_with_server():
+    enabled = os.getenv("RUN_WORKER_WITH_SERVER", "false").lower() in ("true", "1", "yes", "on")
+    if not enabled:
+        return
+    try:
+        import subprocess, sys
+        from pathlib import Path
+        backend_root = Path(__file__).resolve().parents[1]
+        worker_script = backend_root / "workers" / "analysis_worker.py"
+        if not worker_script.exists():
+            print(f"[Worker] 未找到 {worker_script}")
+            return
+        env = os.environ.copy()
+        # 保持与当前环境一致（Mongo/Redis 开关/主机等）
+        global WORKER_POPEN
+        WORKER_POPEN = subprocess.Popen(
+            [sys.executable, "-u", str(worker_script)],
+            cwd=str(backend_root),
+            env=env,
+        )
+        print(f"[Worker] 已启动 PID={WORKER_POPEN.pid}")
+    except Exception as e:
+        print(f"[Worker] 启动失败: {e}")
+
+@app.on_event("shutdown")
+async def _stop_worker_with_server():
+    global WORKER_POPEN
+    if WORKER_POPEN:
+        try:
+            WORKER_POPEN.terminate()
+            WORKER_POPEN.wait(timeout=10)
+            print("[Worker] 已停止")
+        except Exception:
+            try:
+                WORKER_POPEN.kill()
+                print("[Worker] 已强制停止")
+            except Exception as e:
+                print(f"[Worker] 停止失败: {e}")
+        WORKER_POPEN = None
+
 
 class MarketType(str, Enum):
     """市场类型枚举，保持与项目内部标识一致。"""
