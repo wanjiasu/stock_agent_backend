@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 try:
     from pymongo import MongoClient
-    from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError
+    from pymongo.errors import ConnectionFailure, ServerSelectionTimeoutError, OperationFailure
     MONGODB_AVAILABLE = True
 except ImportError:
     MONGODB_AVAILABLE = False
@@ -97,8 +97,17 @@ class MongoDBReportManager:
                 ("timestamp", -1)
             ])
             
-            # 创建单字段索引
-            self.collection.create_index("analysis_id")
+            # 创建单字段索引，优先尝试唯一索引
+            try:
+                self.collection.create_index("analysis_id", unique=True)
+            except Exception as e:
+                logger.warning(f"⚠️ 创建analysis_id唯一索引失败（可能存在历史重复数据）: {e}")
+                # 回退为非唯一索引，避免报错中断
+                try:
+                    self.collection.create_index("analysis_id")
+                except Exception as e2:
+                    logger.warning(f"⚠️ 创建analysis_id普通索引也失败: {e2}")
+            
             self.collection.create_index("status")
             
             logger.info("✅ MongoDB索引创建成功")
@@ -107,49 +116,54 @@ class MongoDBReportManager:
             logger.error(f"❌ MongoDB索引创建失败: {e}")
     
     def save_analysis_report(self, stock_symbol: str, analysis_results: Dict[str, Any],
-                           reports: Dict[str, str]) -> bool:
-        """保存分析报告到MongoDB"""
+                           reports: Dict[str, str], analysis_id: Optional[str] = None) -> bool:
+        """保存分析报告到MongoDB（幂等：按analysis_id覆盖/插入，分字段合并）"""
         if not self.connected:
             logger.warning("MongoDB未连接，跳过保存")
             return False
 
         try:
-            # 生成分析ID
+            # 生成/复用分析ID
             timestamp = datetime.now()
-            analysis_id = f"{stock_symbol}_{timestamp.strftime('%Y%m%d_%H%M%S')}"
+            if not analysis_id:
+                analysis_id = analysis_results.get("analysis_id") or f"{stock_symbol}_{timestamp.strftime('%Y%m%d_%H%M%S')}"
 
-            # 构建文档
-            document = {
-                "analysis_id": analysis_id,
+            # 使用$set按字段更新，避免整文档替换导致历史字段丢失
+            set_fields: Dict[str, Any] = {
                 "stock_symbol": stock_symbol,
-                "analysis_date": timestamp.strftime('%Y-%m-%d'),
-                "timestamp": timestamp,
                 "status": "completed",
                 "source": "mongodb",
-
-                # 分析结果摘要
+                "analysis_date": timestamp.strftime('%Y-%m-%d'),
+                "timestamp": timestamp,
                 "summary": analysis_results.get("summary", ""),
                 "analysts": analysis_results.get("analysts", []),
-                "research_depth": analysis_results.get("research_depth", 1),  # 修正：从分析结果中获取真实的研究深度
-
-                # 报告内容
-                "reports": reports,
-
-                # 元数据
-                "created_at": timestamp,
-                "updated_at": timestamp
+                "research_depth": analysis_results.get("research_depth", 1),
+                "updated_at": timestamp,
             }
-            
-            # 插入文档
-            result = self.collection.insert_one(document)
-            
-            if result.inserted_id:
-                logger.info(f"✅ 分析报告已保存到MongoDB: {analysis_id}")
+
+            # 合并 reports 子字段（逐字段更新，不覆盖未提供的子字段）
+            if isinstance(reports, dict):
+                for key, value in reports.items():
+                    if value is not None:
+                        set_fields[f"reports.{key}"] = value
+
+            update_doc = {
+                "$set": set_fields,
+                "$setOnInsert": {
+                    "analysis_id": analysis_id,
+                    "created_at": timestamp
+                }
+            }
+
+            result = self.collection.update_one({"analysis_id": analysis_id}, update_doc, upsert=True)
+
+            if getattr(result, "upserted_id", None) is not None or result.modified_count >= 0:
+                logger.info(f"✅ 分析报告已保存/更新到MongoDB: {analysis_id}")
                 return True
             else:
-                logger.error("❌ MongoDB插入失败")
+                logger.error("❌ MongoDB写入失败（既未插入也未更新）")
                 return False
-                
+
         except Exception as e:
             logger.error(f"❌ 保存分析报告到MongoDB失败: {e}")
             return False

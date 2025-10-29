@@ -638,7 +638,7 @@ def _format_team_decision_content(content: Dict[str, Any], module_key: str) -> s
     return formatted_content
 
 
-def save_modular_reports_to_results_dir(results: Dict[str, Any], stock_symbol: str) -> Dict[str, str]:
+def save_modular_reports_to_results_dir(results: Dict[str, Any], stock_symbol: str, analysis_id: Optional[str] = None) -> Dict[str, str]:
     """保存分模块报告到results目录（CLI版本格式）"""
     try:
         import os
@@ -805,6 +805,11 @@ def save_modular_reports_to_results_dir(results: Dict[str, Any], stock_symbol: s
                 # 收集所有报告内容
                 reports_content = {}
 
+                # 复用/获取analysis_id
+                if analysis_id is None:
+                    analysis_id = results.get('analysis_id')
+                logger.info(f"🔍 [MongoDB调试] 使用analysis_id: {analysis_id}")
+
                 logger.info(f"🔍 [MongoDB调试] 开始读取 {len(saved_files)} 个报告文件")
                 # 读取已保存的文件内容
                 for module_key, file_path in saved_files.items():
@@ -824,7 +829,8 @@ def save_modular_reports_to_results_dir(results: Dict[str, Any], stock_symbol: s
                     success = mongodb_report_manager.save_analysis_report(
                         stock_symbol=stock_symbol,
                         analysis_results=results,
-                        reports=reports_content
+                        reports=reports_content,
+                        analysis_id=analysis_id
                     )
 
                     if success:
@@ -1163,7 +1169,7 @@ def render_export_buttons(results: Dict[str, Any]):
 
 
 def save_analysis_report(stock_symbol: str, analysis_results: Dict[str, Any], 
-                        report_content: str = None) -> bool:
+                        report_content: str = None, analysis_id: Optional[str] = None) -> bool:
     """
     保存分析报告到MongoDB
     
@@ -1194,7 +1200,8 @@ def save_analysis_report(stock_symbol: str, analysis_results: Dict[str, Any],
         success = mongodb_report_manager.save_analysis_report(
             stock_symbol=stock_symbol,
             analysis_results=analysis_results,
-            reports=reports_dict
+            reports=reports_dict,
+            analysis_id=analysis_id or analysis_results.get('analysis_id')
         )
         
         if success:

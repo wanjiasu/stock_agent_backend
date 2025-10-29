@@ -133,6 +133,8 @@ def run_stock_analysis(
 
     # 生成会话ID用于Token跟踪和日志关联
     session_id = f"analysis_{uuid.uuid4().hex[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # 生成分析ID用于MongoDB幂等写入
+    analysis_id = f"{stock_symbol}_{uuid.uuid4().hex[:8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     # 1. 数据预获取和验证阶段
     update_progress("🔍 验证股票代码并预获取数据...", 1, 10)
@@ -532,7 +534,8 @@ def run_stock_analysis(
             'decision': decision,
             'success': True,
             'error': None,
-            'session_id': session_id if TOKEN_TRACKING_ENABLED else None
+            'session_id': session_id if TOKEN_TRACKING_ENABLED else None,
+            'analysis_id': analysis_id
         }
 
         # 记录分析完成的详细日志
@@ -569,7 +572,7 @@ def run_stock_analysis(
             
             # 1. 保存分模块报告到本地目录
             logger.info(f"📁 [本地保存] 开始保存分模块报告到本地目录")
-            local_files = save_modular_reports_to_results_dir(results, stock_symbol)
+            local_files = save_modular_reports_to_results_dir(results, stock_symbol, analysis_id=analysis_id)
             if local_files:
                 logger.info(f"✅ [本地保存] 已保存 {len(local_files)} 个本地报告文件")
                 for module, path in local_files.items():
@@ -581,7 +584,8 @@ def run_stock_analysis(
             logger.info(f"🗄️ [MongoDB保存] 开始保存分析报告到MongoDB")
             save_success = save_analysis_report(
                 stock_symbol=stock_symbol,
-                analysis_results=results
+                analysis_results=results,
+                analysis_id=analysis_id
             )
             
             if save_success:
