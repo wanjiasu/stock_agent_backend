@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import date
+from datetime import date, datetime
 from enum import Enum
 from functools import partial
 from typing import List, Optional
@@ -15,6 +15,11 @@ from web.utils.analysis_runner import (
     format_analysis_results,
     run_stock_analysis,
     validate_analysis_params,
+)
+from tradingagents.config.database_manager import (
+    get_mongodb_client,
+    get_redis_client,
+    get_database_manager,
 )
 
 # 确保加载环境变量（兼容CLI/Web配置）
@@ -164,6 +169,15 @@ class AnalysisResponse(BaseModel):
     progress: List[ProgressMessage] = Field(default_factory=list)
     errors: Optional[List[str]] = None
 
+# 新增：带邮箱的排队请求模型
+class AnalyzeAndEmailRequest(AnalysisRequest):
+    notify_email: Optional[str] = Field(None, description="接收报告的邮箱")
+
+class EnqueueResponse(BaseModel):
+    task_id: str
+    status: str
+    message: str
+
 
 @app.get("/health")
 def health_check():
@@ -231,3 +245,98 @@ async def analyze_stock(request: AnalysisRequest):
             response_data["errors"] = [error_msg]
 
     return AnalysisResponse(**response_data)
+
+
+# 新增：分析排队并邮件通知端点
+@app.post("/analyze-and-email", response_model=EnqueueResponse)
+async def analyze_and_email(request: AnalyzeAndEmailRequest):
+    """
+    接收分析请求与邮箱，生成唯一 task_id，创建MongoDB任务记录（queued），
+    将 task_id 推入 Redis 队列，成功后返回 task_id。
+    """
+    import uuid
+
+    # 预验证参数，保证基础合法性（与 /analyze 一致）
+    analysts = [
+        analyst.value if isinstance(analyst, AnalystType) else analyst
+        for analyst in request.analysts
+    ]
+    analysis_date_str = request.analysis_date.strftime("%Y-%m-%d")
+
+    is_valid, validation_errors = validate_analysis_params(
+        stock_symbol=request.stock_symbol,
+        analysis_date=analysis_date_str,
+        analysts=analysts,
+        research_depth=request.research_depth,
+        market_type=request.market_type.value,
+    )
+    if not is_valid:
+        raise HTTPException(status_code=422, detail=validation_errors)
+
+    # 生成唯一 task_id
+    task_id = uuid.uuid4().hex
+
+    # MongoDB 连接
+    mongodb_client = get_mongodb_client()
+    if mongodb_client is None:
+        raise HTTPException(status_code=503, detail="MongoDB不可用或未启用")
+
+    db_name = get_database_manager().mongodb_config.get("database", "tradingagents")
+    db = mongodb_client[db_name]
+    tasks_coll = db["analysis_tasks"]
+
+    now = datetime.utcnow()
+    record = {
+        "task_id": task_id,
+        "status": "queued",
+        "created_time": now,
+        "updated_time": now,
+        "request": {
+            "ticker": request.stock_symbol,
+            "analysis_date": analysis_date_str,
+            "analysts": analysts,
+            "research_depth": request.research_depth,
+            "llm_provider": request.llm_provider,
+            "llm_model": request.llm_model,
+            "market_type": request.market_type.value,
+            "notify_email": request.notify_email,
+        },
+    }
+
+    try:
+        insert_res = tasks_coll.insert_one(record)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"创建任务记录失败: {e}")
+
+    if not getattr(insert_res, "inserted_id", None):
+        raise HTTPException(status_code=500, detail="任务记录插入未确认")
+
+    # Redis 入队
+    redis_client = get_redis_client()
+    if redis_client is None:
+        raise HTTPException(status_code=503, detail="Redis不可用或未启用")
+
+    queue_name = os.getenv("ANALYSIS_TASK_QUEUE", "analysis_tasks_queue")
+    try:
+        queue_len = redis_client.rpush(queue_name, task_id)
+    except Exception as e:
+        # 入队失败，回滚任务状态为 failed
+        try:
+            tasks_coll.update_one({"task_id": task_id}, {"$set": {"status": "failed", "updated_time": datetime.utcnow()}})
+        except Exception:
+            pass
+        raise HTTPException(status_code=500, detail=f"任务入队失败: {e}")
+
+    # 更新任务记录（标记已入队）
+    try:
+        tasks_coll.update_one(
+            {"task_id": task_id},
+            {"$set": {"enqueued": True, "queue": queue_name, "updated_time": datetime.utcnow()}}
+        )
+    except Exception:
+        pass
+
+    return EnqueueResponse(task_id=task_id, status="queued", message="任务已进入队列，请稍后")
+
+# 旧的占位端点已移除，实际实现见上方 /analyze-and-email。
+    pass
