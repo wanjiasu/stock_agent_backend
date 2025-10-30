@@ -61,6 +61,7 @@ def send_report_email(to_email: str, report_url: str) -> None:
     # Try Resend first
     resend_api_key = os.getenv("RESEND_API_KEY")
     resend_from = os.getenv("RESEND_FROM")
+    resend_reply_to = os.getenv("RESEND_REPLY_TO")
 
     if resend_api_key and resend_from:
         import requests
@@ -81,7 +82,9 @@ def send_report_email(to_email: str, report_url: str) -> None:
             "subject": subject,
             "html": html,
         }
-        logger.info(f"Resend: 发送邮件 to={to_email} from={resend_from} subject={subject}")
+        if resend_reply_to:
+            payload["reply_to"] = resend_reply_to
+        logger.info(f"Resend: 发送邮件 to={to_email} from={resend_from} subject={subject} reply_to={resend_reply_to or '-'}")
         try:
             resp = requests.post(url, headers=headers, data=json.dumps(payload), timeout=30)
             if resp.status_code >= 200 and resp.status_code < 300:
@@ -112,6 +115,8 @@ def send_report_email(to_email: str, report_url: str) -> None:
     msg["Subject"] = "TradingAgents 报告已生成"
     msg["From"] = mail_from
     msg["To"] = to_email
+    if resend_reply_to:
+        msg["Reply-To"] = resend_reply_to
     msg.set_content(
         f"您好，您的股票分析报告已生成。\n\n"
         f"报告地址：{report_url}\n\n"
