@@ -1,6 +1,4 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.agents import create_react_agent, AgentExecutor
-from langchain import hub
 import time
 import json
 import traceback
@@ -228,27 +226,40 @@ def create_market_analyst_react(llm, toolkit):
 ## 投资建议"""
 
             try:
-                # 创建ReAct Agent
-                prompt = hub.pull("hwchase17/react")
-                agent = create_react_agent(llm, tools, prompt)
-                agent_executor = AgentExecutor(
-                    agent=agent,
-                    tools=tools,
-                    verbose=True,
-                    handle_parsing_errors=True,
-                    max_iterations=10,  # 增加到10次迭代，确保有足够时间完成分析
-                    max_execution_time=180  # 增加到3分钟，给更多时间生成详细报告
-                )
-
-                logger.debug(f"📈 [DEBUG] 执行ReAct Agent查询...")
-                result = agent_executor.invoke({'input': query})
-
-                report = result['output']
-                logger.info(f"📈 [市场分析师] ReAct Agent完成，报告长度: {len(report)}")
-
+                from langchain_core.messages import HumanMessage, ToolMessage
+                llm_with_tools = llm.bind_tools(tools)
+                result = llm_with_tools.invoke([HumanMessage(content=query)])
+                if hasattr(result, 'tool_calls') and len(result.tool_calls) > 0:
+                    tool_messages = []
+                    for tool_call in result.tool_calls:
+                        tool_name = tool_call.get('name')
+                        tool_args = tool_call.get('args', {})
+                        tool_id = tool_call.get('id')
+                        tool_result = None
+                        for tool in tools:
+                            current_tool_name = None
+                            if hasattr(tool, 'name'):
+                                current_tool_name = tool.name
+                            elif hasattr(tool, '__name__'):
+                                current_tool_name = tool.__name__
+                            if current_tool_name == tool_name:
+                                try:
+                                    tool_result = tool.invoke(tool_args)
+                                    break
+                                except Exception as tool_error:
+                                    tool_result = f"工具执行失败: {str(tool_error)}"
+                        if tool_result is None:
+                            tool_result = f"未找到工具: {tool_name}"
+                        tool_messages.append(ToolMessage(content=str(tool_result), tool_call_id=tool_id))
+                    analysis_prompt = "请基于上述工具获取的数据，生成详细的技术分析报告，包含具体指标与投资建议，长度不少于800字，使用中文。"
+                    final = llm.invoke(state["messages"] + [result] + tool_messages + [HumanMessage(content=analysis_prompt)])
+                    report = final.content
+                else:
+                    report = result.content
+                logger.info(f"📈 [市场分析师] 完成分析，报告长度: {len(report)}")
             except Exception as e:
-                logger.error(f"❌ [DEBUG] ReAct Agent失败: {str(e)}")
-                report = f"ReAct Agent市场分析失败: {str(e)}"
+                logger.error(f"❌ [DEBUG] 市场分析失败: {str(e)}")
+                report = f"市场分析失败: {str(e)}"
         else:
             # 离线模式，使用原有逻辑
             report = "离线模式，暂不支持"

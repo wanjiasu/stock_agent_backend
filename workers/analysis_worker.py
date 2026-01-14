@@ -288,16 +288,36 @@ def process_task(task_id: str) -> None:
 # ---- Main loop ----
 
 def worker_loop():
-    redis_client = get_redis_client()
-    if redis_client is None:
-        raise RuntimeError("Redis client unavailable")
+    # 为阻塞队列消费创建专用的Redis客户端，禁用读超时以避免BLPOP被socket超时中断
+    try:
+        import redis
+        dbm = get_database_manager()
+        cfg = dbm.redis_config
+        connect_kwargs = {
+            "host": cfg.get("host", "localhost"),
+            "port": cfg.get("port", 6379),
+            "db": cfg.get("db", 0),
+            "socket_timeout": None,  # 阻塞读不超时
+            "socket_connect_timeout": 5,
+            "retry_on_timeout": True,
+            "health_check_interval": 30,
+        }
+        if cfg.get("password"):
+            connect_kwargs["password"] = cfg["password"]
+        redis_client = redis.Redis(**connect_kwargs)
+        # 连接探测
+        redis_client.ping()
+    except Exception as e:
+        raise RuntimeError(f"Redis client unavailable: {e}")
 
     queue_name = os.getenv("ANALYSIS_TASK_QUEUE", "analysis_tasks_queue")
+    block_timeout = int(os.getenv("QUEUE_BLOCK_TIMEOUT", "30"))
     logger.info(f"🚀 Worker启动，监听Redis队列: {queue_name}")
 
     while True:
         try:
-            item = redis_client.blpop(queue_name, timeout=0)  # blocking
+            # 使用有限阻塞时间，避免无法优雅停止；结合retry_on_timeout减少断连影响
+            item = redis_client.blpop(queue_name, timeout=block_timeout)
             if not item:
                 continue
             _, task_id_bytes = item
